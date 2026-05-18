@@ -18,6 +18,8 @@ ssh -i ~/.ssh/geargambler_dev -o StrictHostKeyChecking=no azerothcore@192.168.50
   make -j\$(nproc) 2>&1 | tail -20 &&
   echo '=== Installing ===' &&
   make install 2>&1 | tail -5 &&
+  echo '=== Stopping server to free binary lock ===' &&
+  pkill -9 worldserver 2>/dev/null; pkill -9 authserver 2>/dev/null; sleep 2 &&
   echo '=== Copying binaries to run directory ===' &&
   cp ~/azerothcore-wotlk/build/env/dist/bin/worldserver ~/azerothcore-wotlk/env/dist/bin/worldserver &&
   cp ~/azerothcore-wotlk/build/env/dist/bin/authserver  ~/azerothcore-wotlk/env/dist/bin/authserver &&
