@@ -795,9 +795,21 @@ private:
             return;
         }
 
+        // Stackable resources: award a tier-scaled random quantity so players
+        // actually get a useful amount of crafting materials.
+        uint32 quantity = 1;
+        if (category == GG_CAT_RESOURCES && proto->Stackable > 1)
+        {
+            static const uint32 qtyMin[GG_TIER_MAX] = { 0,  1,  3,  8, 15, 25 };
+            static const uint32 qtyMax[GG_TIER_MAX] = { 0,  5, 15, 25, 40, 75 };
+            quantity = urand(qtyMin[tier], qtyMax[tier]);
+            if (quantity > proto->Stackable) quantity = proto->Stackable;
+            if (quantity < 1)               quantity = 1;
+        }
+
         ItemPosCountVec dest;
         uint32 noSpaceCount = 0;
-        if (player->CanStoreNewItem(NULL_BAG, NULL_SLOT, dest, itemEntry, 1,
+        if (player->CanStoreNewItem(NULL_BAG, NULL_SLOT, dest, itemEntry, quantity,
                                     &noSpaceCount) != EQUIP_ERR_OK)
         {
             ChatHandler(player->GetSession()).SendSysMessage(
@@ -816,7 +828,7 @@ private:
             return;
         }
 
-        player->SendNewItem(item, 1, true, false);
+        player->SendNewItem(item, quantity, true, false);
         std::string link = BuildItemLink(proto);
 
         if (category == GG_CAT_OTHER)
@@ -824,6 +836,15 @@ private:
                 "|cffFFD700[Gear Gambler]|r You opened a %s%s Other Box|r and received: %s",
                 GearGamblerMgr::GetTierColor(tier),
                 GearGamblerMgr::GetTierName(tier), link.c_str());
+        else if (quantity > 1)
+            ChatHandler(player->GetSession()).PSendSysMessage(
+                "|cffFFD700[Gear Gambler]|r You opened a %s%s %s Box|r "
+                "(Levels %u-%u) and received: %s x%u",
+                GearGamblerMgr::GetTierColor(tier),
+                GearGamblerMgr::GetTierName(tier),
+                GearGamblerMgr::GetCategoryName(category),
+                sGearGamblerMgr->BracketMinLevel(bracket),
+                sGearGamblerMgr->BracketMaxLevel(bracket), link.c_str(), quantity);
         else
             ChatHandler(player->GetSession()).PSendSysMessage(
                 "|cffFFD700[Gear Gambler]|r You opened a %s%s %s Box|r "
