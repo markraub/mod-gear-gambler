@@ -1,0 +1,307 @@
+########################################
+# Gear Gambler Module Configuration
+########################################
+#
+# OVERVIEW
+# --------
+# The Gear Gambler NPC lets players buy loot boxes organized by
+# level bracket (1-5, 6-10, ... 76-80) and category (Weapons,
+# Armor, Resources).  A separate "Other" category (mounts, bags,
+# companion pets) lives outside the brackets.
+#
+# Each category offers five tiers: Bronze through Diamond.
+# All tiers pull from the SAME item pool -- the tier only shifts
+# how likely each item quality is to drop.  Even a Bronze box
+# has a (very small) chance at a Legendary.
+#
+# HOW ITEMS ARE SELECTED
+# ----------------------
+# 1. The module loads every item from item_template on startup
+#    and auto-categorizes them (see AutoPopulate below).
+#
+# 2. When a player opens a box, the module:
+#    a) Filters to items in the chosen level bracket.
+#    b) For Weapons/Armor, further filters by the player's class.
+#    c) Computes each item's effective weight:
+#
+#         effectiveWeight = item.weight * qualityWeight[tier][quality]
+#
+#       where qualityWeight comes from the tier config below.
+#    d) Does a single weighted-random roll across the filtered pool.
+#
+# This means the tier's quality weights act as multipliers on
+# every item of that quality.  A Bronze box with Poor=30 and
+# Legendary=0.1 makes any single legendary item 300x rarer than
+# any single grey item -- and since there are typically far more
+# grey items than legendaries, the actual chance is tiny.
+#
+# EXAMPLE (level 76-80 Weapons bracket, Warrior)
+# Suppose the bracket contains:
+#   300 Poor weapons     (quality weight 30)  -> 300 * 30 =  9,000
+#   500 Common weapons   (quality weight 80)  -> 500 * 80 = 40,000
+#   400 Uncommon weapons (quality weight 40)  -> 400 * 40 = 16,000
+#   250 Rare weapons     (quality weight 10)  -> 250 * 10 =  2,500
+#   150 Epic weapons     (quality weight  2)  -> 150 *  2 =    300
+#     7 Legendary weapons(quality weight 0.1) ->   7 * 0.1=    0.7
+#                                       Total:          68,800.7
+#
+# From a BRONZE box:
+#   Chance of any legendary:  0.7 / 68800 = ~0.001%  (1 in 98,000)
+#   Chance of any epic:       300 / 68800 = ~0.4%     (1 in 229)
+#   Chance of any poor:      9000 / 68800 = ~13%
+#
+# From a DIAMOND box (Poor=0, Epic=60, Legendary=10):
+#   Poor/Common are excluded (weight 0).
+#   Chance of any legendary: 70 / (1200+3750+9000+70) = ~0.5%
+#   Chance of any epic:      9000 / 14020 = ~64%
+#
+# To adjust these odds, change the quality weights below.
+# To make a specific item rarer or more common, add an entry
+# to the mod_gear_gambler_loot override table with a custom weight.
+#
+
+########################################
+# General
+########################################
+
+#
+# GearGambler.Enable
+#   Master switch for the module.
+#   Default: 1
+#
+GearGambler.Enable = 1
+
+#
+# GearGambler.MinLevel
+#   Minimum player level to interact with the NPC.
+#   Default: 1
+#
+GearGambler.MinLevel = 1
+
+########################################
+# Level Brackets
+########################################
+
+#
+# GearGambler.BracketSize
+#   Number of levels per bracket.  With the default of 5:
+#     1-5, 6-10, 11-15, 16-20, 21-25, 26-30, 31-35, 36-40,
+#     41-45, 46-50, 51-55, 56-60, 61-65, 66-70, 71-75, 76-80
+#   Change to 10 for 8 wider brackets (1-10, 11-20, ...).
+#   Default: 5
+#
+GearGambler.BracketSize = 5
+
+#
+# GearGambler.AllowHigherBrackets
+#   0 = players only see brackets at or below their level.
+#       A level 23 player sees: 1-5, 6-10, 11-15, 16-20, 21-25.
+#   1 = all brackets are visible (items may not be equippable yet).
+#   Default: 0
+#
+GearGambler.AllowHigherBrackets = 0
+
+########################################
+# Auto-populate
+########################################
+
+#
+# GearGambler.AutoPopulate
+#   When enabled (default), the module loads ALL qualifying items
+#   from item_template at startup and sorts them by class:
+#
+#     item_template.class  ->  Gambler category
+#     -------------------------------------------
+#     2  (Weapon)          ->  Weapons
+#     4  (Armor)           ->  Armor
+#     0  (Consumable)      ->  Resources
+#     7  (Trade Goods)     ->  Resources
+#     1  (Container)       ->  Other
+#     15 (Miscellaneous)   ->  Other
+#
+#   All auto-populated items get weight 1.0.  The quality weights
+#   (below) then control how likely each quality level is per tier.
+#
+#   The mod_gear_gambler_loot SQL table acts as an override layer:
+#     weight > 0   ->  replace the item's default weight/category
+#     weight <= 0  ->  blacklist the item (exclude it entirely)
+#
+#   If set to 0, ONLY items in mod_gear_gambler_loot are used and
+#   you must populate that table manually.
+#
+#   Default: 1
+#
+GearGambler.AutoPopulate = 1
+
+########################################
+# Tier Prices
+########################################
+#
+# Base prices are set in gold for the level 76-80 bracket.
+# Lower brackets scale quadratically:
+#
+#   price = basePrice * (bracketMaxLevel / 80)^2
+#
+# This matches how gold accumulates -- a level 10 player has far
+# less gold than a level 60 player.  Prices are displayed in the
+# most appropriate unit (silver for cheap boxes, gold for expensive).
+#
+# Complete price table (all 16 brackets, BracketSize = 5):
+#
+#   Bracket   Bronze   Silver   Gold     Platinum  Diamond
+#   -------   ------   ------   ------   --------  -------
+#    1-5        20s      78s     1g 95s    3g 91s     9g 77s
+#    6-10       78s     3g 13s   7g 81s   15g 63s    39g  6s
+#   11-15      1g 76s   7g  3s  17g 58s   35g 16s   87g 89s
+#   16-20      3g 13s  12g 50s  31g 25s   62g 50s  156g 25s
+#   21-25      4g 88s  19g 53s  48g 83s   97g 66s  244g 14s
+#   26-30      7g  3s  28g 13s  70g 31s  140g 63s  351g 56s
+#   31-35      9g 57s  38g 28s  95g 70s  191g 41s  478g 52s
+#   36-40     12g 50s  50g     125g      250g      625g
+#   41-45     15g 82s  63g 28s 158g 20s  316g 41s  791g  2s
+#   46-50     19g 53s  78g 13s 195g 31s  390g 63s  976g 56s
+#   51-55     23g 63s  94g 53s 236g 33s  472g 66s 1181g 64s
+#   56-60     28g 13s 112g 50s 281g 25s  562g 50s 1406g 25s
+#   61-65     33g  1s 132g  3s 330g  8s  660g 16s 1650g 39s
+#   66-70     38g 28s 153g 13s 382g 81s  765g 63s 1914g  6s
+#   71-75     43g 95s 175g 78s 439g 45s  878g 91s 2197g 27s
+#   76-80     50g     200g     500g     1000g     2500g
+#
+GearGambler.BronzePrice   = 50
+GearGambler.SilverPrice   = 200
+GearGambler.GoldPrice     = 500
+GearGambler.PlatinumPrice = 1000
+GearGambler.DiamondPrice  = 2500
+
+#
+# GearGambler.OtherPriceMultiplier
+#   "Other" boxes (mounts, bags, pets) are level-agnostic and
+#   contain high-value items, so they use a flat multiplier on
+#   the base prices instead of bracket scaling:
+#
+#     Tier       Other price (at 3x)
+#     ------     -------------------
+#     Bronze       150g
+#     Silver       600g
+#     Gold        1500g
+#     Platinum    3000g
+#     Diamond     7500g
+#
+#   Default: 3
+#
+GearGambler.OtherPriceMultiplier = 3
+
+########################################
+# Summoning
+########################################
+
+#
+# GearGambler.SummonDuration
+#   Seconds a summoned NPC stays before despawning.
+#   Default: 300 (5 minutes)
+#
+GearGambler.SummonDuration = 300
+
+#
+# GearGambler.CommandGMLevel
+#   Minimum GM security level to use .gg summon.
+#   0 = any player, 1 = moderator, 2 = gamemaster, 3 = administrator
+#   Default: 0
+#
+GearGambler.CommandGMLevel = 0
+
+#
+# GearGambler.SummonCooldown
+#   Seconds between .gg summon uses per player.
+#   Default: 60
+#
+GearGambler.SummonCooldown = 60
+
+########################################
+# Announcements
+########################################
+
+#
+# GearGambler.AnnounceWins
+#   When enabled, a server-wide message is broadcast whenever a
+#   player wins an Epic (purple) or Legendary (orange) item.
+#   Default: 1
+#
+GearGambler.AnnounceWins = 1
+
+########################################
+# Quality Probability Weights
+########################################
+#
+# These control how likely each item quality is when a player
+# opens a box of the given tier.  They are relative weights,
+# NOT percentages.
+#
+# HOW THEY WORK
+#
+#   Every item in the filtered pool gets an effective weight:
+#     effectiveWeight = item.weight * qualityWeight[tier][quality]
+#
+#   A weight of 0 means that quality CANNOT drop from that tier.
+#   All items with the same quality share the same multiplier,
+#   so the chance of getting a specific item also depends on how
+#   many other items share its quality level.
+#
+# TUNING TIPS
+#
+#   - To make legendaries rarer from Bronze, lower Bronze.Legendary.
+#   - To guarantee no grey items from Gold+, set Gold.Poor = 0 (and
+#     Platinum.Poor = 0, Diamond.Poor = 0).
+#   - To make Diamond feel truly premium, widen the gap between
+#     Diamond.Epic and Diamond.Legendary vs the lower qualities.
+#   - To make a SPECIFIC item rarer than others of the same quality,
+#     add it to mod_gear_gambler_loot with a lower weight (e.g. 0.5).
+#   - To remove a specific item entirely, add it with weight 0.
+#
+# The defaults below are tuned so that:
+#   Bronze  = mostly Poor/Common junk, ~0.001% legendary chance
+#   Silver  = shift toward Uncommon, small Epic chance
+#   Gold    = centered on Rare, real Epic chance
+#   Platinum = Rare/Epic dominant, small Legendary chance
+#   Diamond  = Epic dominant, ~0.5% legendary chance
+#
+
+# --- Bronze --- cheap gamble, mostly junk
+GearGambler.Bronze.Poor      = 30
+GearGambler.Bronze.Common    = 80
+GearGambler.Bronze.Uncommon  = 40
+GearGambler.Bronze.Rare      = 10
+GearGambler.Bronze.Epic      = 2
+GearGambler.Bronze.Legendary = 0.1
+
+# --- Silver --- better spread, occasional rare
+GearGambler.Silver.Poor      = 10
+GearGambler.Silver.Common    = 40
+GearGambler.Silver.Uncommon  = 60
+GearGambler.Silver.Rare      = 30
+GearGambler.Silver.Epic      = 5
+GearGambler.Silver.Legendary = 0.5
+
+# --- Gold --- centered on rare, real epic chance
+GearGambler.Gold.Poor      = 2
+GearGambler.Gold.Common    = 10
+GearGambler.Gold.Uncommon  = 30
+GearGambler.Gold.Rare      = 60
+GearGambler.Gold.Epic      = 15
+GearGambler.Gold.Legendary = 1
+
+# --- Platinum --- rare/epic heavy, small legendary chance
+GearGambler.Platinum.Poor      = 0
+GearGambler.Platinum.Common    = 2
+GearGambler.Platinum.Uncommon  = 10
+GearGambler.Platinum.Rare      = 40
+GearGambler.Platinum.Epic      = 50
+GearGambler.Platinum.Legendary = 3
+
+# --- Diamond --- epic dominant, best legendary odds
+GearGambler.Diamond.Poor      = 0
+GearGambler.Diamond.Common    = 0
+GearGambler.Diamond.Uncommon  = 3
+GearGambler.Diamond.Rare      = 15
+GearGambler.Diamond.Epic      = 60
+GearGambler.Diamond.Legendary = 10
