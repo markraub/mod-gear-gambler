@@ -53,13 +53,22 @@ void GearGamblerMgr::LoadConfig()
     static const char* tierNames[] = { "", "Bronze", "Silver", "Gold", "Platinum", "Diamond" };
     static const char* qualNames[] = { "Poor", "Common", "Uncommon", "Rare", "Epic", "Legendary" };
 
+    // Quality weights per tier.  Columns: Poor, Common, Uncommon, Rare, Epic, Legendary.
+    // Weights are per-item; the roll pool = sum(count_Q * weight_Q) across all qualities.
+    // Calibrated against actual item counts (pool ~35,800) to hit target probabilities:
+    //   Bronze  : ~45% poor, ~45% common, ~10% uncommon, ~0.1% rare
+    //   Silver  : ~20% common, ~79% uncommon, ~1% rare
+    //   Gold    : ~20% uncommon, ~80% rare, ~0.01% epic
+    //   Platinum: ~100% rare, ~0.05% epic  (1 in 2,000)
+    //   Diamond : ~100% rare, ~0.1% epic   (1 in 1,000), ~0.02% legendary (1 in 5,000)
     static const float defaults[][6] = {
         {},
-        { 30.0f,  80.0f,  40.0f,  10.0f,   2.0f,  0.1f  },
-        { 10.0f,  40.0f,  60.0f,  30.0f,   5.0f,  0.5f  },
-        {  2.0f,  10.0f,  30.0f,  60.0f,  15.0f,  1.0f  },
-        {  0.0f,   2.0f,  10.0f,  40.0f,  50.0f,  3.0f  },
-        {  0.0f,   0.0f,   3.0f,  15.0f,  60.0f, 10.0f  },
+        //         Poor    Common  Uncommon   Rare    Epic    Legendary
+        /* Bronze */ { 40.0f,  52.0f,   7.5f,  0.1f,   0.0f,   0.0f  },
+        /* Silver */ {  0.0f,  24.0f,  60.0f,  1.0f,   0.0f,   0.0f  },
+        /* Gold   */ {  0.0f,   0.0f,  25.0f,140.0f,   0.01f,  0.0f  },
+        /* Plat   */ {  0.0f,   0.0f,   0.0f,175.0f,   0.05f,  0.0f  },
+        /* Diamond*/ {  0.0f,   0.0f,   0.0f,175.0f,   0.1f,   4.75f },
     };
 
     for (uint8 t = GG_TIER_BRONZE; t < GG_TIER_MAX; ++t)
