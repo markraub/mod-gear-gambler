@@ -622,8 +622,9 @@ private:
             {
                 if (playerLevel < GG_MAX_LEVEL) continue;
             }
-            else if (!sGearGamblerMgr->AllowHigherBrackets() && bMax > playerLevel)
-                continue;
+            else if (!sGearGamblerMgr->AllowHigherBrackets() &&
+                     sGearGamblerMgr->BracketMinLevel(b) > playerLevel)
+                continue;   // bracket starts above the player's level — skip it
 
             uint32 total = sGearGamblerMgr->GetBracketTotalEligible(b, player);
             if (!total) continue;
