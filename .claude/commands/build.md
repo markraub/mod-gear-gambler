@@ -18,8 +18,13 @@ ssh -i ~/.ssh/geargambler_dev -o StrictHostKeyChecking=no azerothcore@192.168.50
   make -j\$(nproc) 2>&1 | tail -20 &&
   echo '=== Installing ===' &&
   make install 2>&1 | tail -5 &&
+  echo '=== Copying binaries to run directory ===' &&
+  cp ~/azerothcore-wotlk/build/env/dist/bin/worldserver ~/azerothcore-wotlk/env/dist/bin/worldserver &&
+  cp ~/azerothcore-wotlk/build/env/dist/bin/authserver  ~/azerothcore-wotlk/env/dist/bin/authserver &&
   echo '=== Build complete ==='
 "
 ```
 
-Note: After building, use /restart to bring the new binary online.
+Note: make install puts binaries in build/env/dist/bin/ — the copy step above syncs them
+to env/dist/bin/ where the server actually runs (alongside maps/dbc/vmaps).
+After building, use /restart to bring the new binary online.
