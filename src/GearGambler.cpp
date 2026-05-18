@@ -108,7 +108,18 @@ void GearGamblerMgr::LoadLootTables()
         QueryResult result = WorldDatabase.Query(
             "SELECT entry FROM item_template "
             "WHERE class IN (0, 1, 2, 4, 7, 15) "
-            "AND Quality BETWEEN 0 AND 5");
+            "AND Quality BETWEEN 0 AND 5 "
+            "AND name != '' "
+            "AND name NOT LIKE '%[PH]%' "   // placeholder items
+            "AND name NOT LIKE '%[DEP]%' "  // deprecated items
+            "AND name NOT LIKE '%test%' "   // test items (case-insensitive in MySQL)
+            "AND name NOT LIKE 'QA %' "     // Blizzard QA items
+            "AND name NOT LIKE 'QA\\_%' "   // QA_xxx items
+            "AND name NOT LIKE '%UNUSED%' " // unused/deprecated
+            "AND name NOT LIKE 'ZZ%' "      // ZZ-prefixed dev items
+            "AND name NOT LIKE 'DO NOT%' "  // "Do Not Use" items
+            "AND name NOT LIKE '%dummy%' "  // dummy items
+            "AND name NOT LIKE '%delete%'");
 
         if (result)
         {
@@ -153,7 +164,7 @@ void GearGamblerMgr::LoadLootTables()
             while (result->NextRow());
         }
 
-        LOG_INFO("module", ">> GearGambler: Auto-populated {} items from item_template",
+        LOG_INFO("module", ">> GearGambler: Auto-populated {} items from item_template (dev/test items excluded via name filter)",
                  autoCount);
     }
 
