@@ -125,8 +125,8 @@ void GearGamblerMgr::LoadLootTables()
                 uint8 category;
                 switch (proto->Class)
                 {
-                    case 2:  category = GG_CAT_WEAPONS;   break;
-                    case 4:  category = GG_CAT_ARMOR;     break;
+                    case 2:  category = GG_CAT_WEAPONS;    break;
+                    case 4:  category = GG_CAT_ARMOR;      break;
                     case 0:
                     case 7:  category = GG_CAT_RESOURCES;  break;
                     case 1:
@@ -134,12 +134,18 @@ void GearGamblerMgr::LoadLootTables()
                     default: continue;
                 }
 
+                // Skip fishing poles (weapon subclass 20) — not useful loot
+                if (proto->Class == 2 && proto->SubClass == 20)
+                    continue;
+
                 GGLootEntry entry;
                 entry.itemEntry      = itemEntry;
                 entry.weight         = 1.0f;
                 entry.quality        = proto->Quality;
                 entry.allowableClass = static_cast<int32>(proto->AllowableClass);
                 entry.requiredLevel  = proto->RequiredLevel;
+                entry.itemLevel      = proto->ItemLevel;
+                entry.itemSubClass   = proto->SubClass;
 
                 _lootTable[category].push_back(entry);
                 ++autoCount;
@@ -176,6 +182,8 @@ void GearGamblerMgr::LoadLootTables()
         entry.quality        = proto->Quality;
         entry.allowableClass = static_cast<int32>(proto->AllowableClass);
         entry.requiredLevel  = proto->RequiredLevel;
+        entry.itemLevel      = proto->ItemLevel;
+        entry.itemSubClass   = proto->SubClass;
 
         _lootTable[ov.category].push_back(entry);
         ++addedOverrides;
@@ -238,35 +246,90 @@ uint32 GearGamblerMgr::GetOtherPriceCopper(uint8 tier) const
 // Eligibility
 // ---------------------------------------------------------------------------
 
+// Returns the highest armor subclass (1=cloth,2=leather,3=mail,4=plate) a
+// given class can equip.  Hunters and Shamans upgrade from leather to mail at 40.
+static uint8 MaxArmorSubClassForPlayer(uint8 playerClass, uint32 playerLevel)
+{
+    switch (playerClass)
+    {
+        case 1: case 2: case 6:  return 4;                              // Warrior / Paladin / DK
+        case 3: case 7:          return (playerLevel >= 40) ? 3 : 2;   // Hunter / Shaman
+        case 4: case 11:         return 2;                              // Rogue / Druid
+        default:                 return 1;                              // Priest / Mage / Warlock
+    }
+}
+
 bool GearGamblerMgr::IsItemEligibleInBracket(const GGLootEntry& entry,
                                               uint8 category, uint8 bracket,
                                               Player* player) const
 {
-    if (category == GG_CAT_OTHER)
-        return true;
+    uint32 bMin     = BracketMinLevel(bracket);
+    uint32 bMax     = BracketMaxLevel(bracket);
+    bool   isMaxBkt = (bMax == GG_MAX_LEVEL);
 
+    // ---- Other (bags, mounts, misc) ----------------------------------------
+    // Level-agnostic; still respect explicit class locks (e.g. paladin mount).
+    if (category == GG_CAT_OTHER)
+    {
+        if (entry.allowableClass != -1)
+        {
+            uint32 mask = 1u << (player->getClass() - 1);
+            if (!(static_cast<uint32>(entry.allowableClass) & mask))
+                return false;
+        }
+        return true;
+    }
+
+    // ---- Resources: bracket by effective level ------------------------------
+    // Trade goods usually have requiredLevel==0; fall back to itemLevel.
+    if (category == GG_CAT_RESOURCES)
+    {
+        uint32 lvl = (entry.requiredLevel > 0) ? entry.requiredLevel : entry.itemLevel;
+        if (lvl == 0)
+            return (bracket == 0);
+        // Level-80 bracket: allow a small underrun to capture WOTLK mats
+        // whose itemLevel may land a few points below 76.
+        if (isMaxBkt)
+            return (lvl >= bMin - 5);
+        return (lvl >= bMin && lvl <= bMax);
+    }
+
+    // ---- Weapons / Armor ----------------------------------------------------
+
+    // 1. Level-bracket check
     if (entry.requiredLevel == 0)
     {
-        if (category == GG_CAT_WEAPONS || category == GG_CAT_ARMOR)
-        {
-            if (bracket != 0) return false;
-        }
+        if (bracket != 0) return false;
+    }
+    else if (isMaxBkt)
+    {
+        // Level-80 bracket shows only items that require exactly level 80.
+        if (entry.requiredLevel != GG_MAX_LEVEL)
+            return false;
     }
     else
     {
-        uint32 bMin = BracketMinLevel(bracket);
-        uint32 bMax = BracketMaxLevel(bracket);
         if (entry.requiredLevel < bMin || entry.requiredLevel > bMax)
             return false;
     }
 
-    if (category == GG_CAT_WEAPONS || category == GG_CAT_ARMOR)
+    // 2. Explicit class restriction from item_template
+    if (entry.allowableClass != -1)
     {
-        if (entry.allowableClass != -1)
+        uint32 mask = 1u << (player->getClass() - 1);
+        if (!(static_cast<uint32>(entry.allowableClass) & mask))
+            return false;
+    }
+
+    // 3. Armor-type restriction: no plate for mages, no cloth for warriors, etc.
+    if (category == GG_CAT_ARMOR)
+    {
+        uint8 sub = entry.itemSubClass;
+        if (sub >= 1 && sub <= 4) // 1=cloth, 2=leather, 3=mail, 4=plate
         {
-            uint32 classMask = 1 << (player->getClass() - 1);
-            if (!(static_cast<uint32>(entry.allowableClass) & classMask))
-                return false;
+            uint8 maxArmor = MaxArmorSubClassForPlayer(
+                player->getClass(), player->GetLevel());
+            if (sub > maxArmor) return false;
         }
     }
 
@@ -550,17 +613,30 @@ private:
 
         for (uint8 b = 0; b < numBrackets; ++b)
         {
-            uint32 bMax = sGearGamblerMgr->BracketMaxLevel(b);
-            if (!sGearGamblerMgr->AllowHigherBrackets() && bMax > playerLevel)
+            uint32 bMax     = sGearGamblerMgr->BracketMaxLevel(b);
+            bool   isMaxBkt = (bMax == GG_MAX_LEVEL);
+
+            // Level-80 bracket: only available to level 80 players regardless
+            // of AllowHigherBrackets (endgame gear is a different pool entirely).
+            if (isMaxBkt)
+            {
+                if (playerLevel < GG_MAX_LEVEL) continue;
+            }
+            else if (!sGearGamblerMgr->AllowHigherBrackets() && bMax > playerLevel)
                 continue;
 
             uint32 total = sGearGamblerMgr->GetBracketTotalEligible(b, player);
             if (!total) continue;
 
             char label[128];
-            snprintf(label, sizeof(label),
-                     "|cffffffffLevels %u-%u|r   (%u items)",
-                     sGearGamblerMgr->BracketMinLevel(b), bMax, total);
+            if (isMaxBkt)
+                snprintf(label, sizeof(label),
+                         "|cffFFD700[Level 80]|r  Endgame gear  (%u items)", total);
+            else
+                snprintf(label, sizeof(label),
+                         "|cffffffffLevels %u-%u|r   (%u items)",
+                         sGearGamblerMgr->BracketMinLevel(b), bMax, total);
+
             AddGossipItemFor(player, GOSSIP_ICON_CHAT, label,
                              GOSSIP_SENDER_MAIN, 100 + b);
             any = true;
@@ -590,12 +666,14 @@ private:
     void ShowBracketCategoryMenu(Player* player, Creature* creature, uint8 bracket)
     {
         ClearGossipMenuFor(player);
+        bool isMaxBkt = (sGearGamblerMgr->BracketMaxLevel(bracket) == GG_MAX_LEVEL);
+
         struct CatDef { uint8 cat; uint32 icon; const char* name; const char* desc; bool cls; };
         static const CatDef cats[] =
         {
-            { GG_CAT_WEAPONS,   GOSSIP_ICON_BATTLE, "Weapons",   "Swords, axes, staves & more", true  },
-            { GG_CAT_ARMOR,     GOSSIP_ICON_TABARD, "Armor",     "Plate, mail, leather & cloth", true  },
-            { GG_CAT_RESOURCES, GOSSIP_ICON_VENDOR, "Resources", "Crafting materials & orbs",    false },
+            { GG_CAT_WEAPONS,   GOSSIP_ICON_BATTLE, "Weapons",   "Swords, axes, staves & more",  true  },
+            { GG_CAT_ARMOR,     GOSSIP_ICON_TABARD, "Armor",     "Class-appropriate armor",       true  },
+            { GG_CAT_RESOURCES, GOSSIP_ICON_VENDOR, "Resources", "Crafting materials & reagents", false },
         };
         for (const auto& c : cats)
         {
@@ -611,6 +689,17 @@ private:
             AddGossipItemFor(player, c.icon, label, GOSSIP_SENDER_MAIN,
                              300 + bracket * 10 + c.cat);
         }
+
+        if (isMaxBkt && sGearGamblerMgr->HasOtherLoot())
+        {
+            // Surface the Other category from the main menu inside the 80 bracket too
+            char label[128];
+            snprintf(label, sizeof(label), "|cff00ffffOther|r  -  Mounts, bags & surprises  (%u items)",
+                     sGearGamblerMgr->GetOtherLootCount());
+            AddGossipItemFor(player, GOSSIP_ICON_INTERACT_1, label,
+                             GOSSIP_SENDER_MAIN, GG_ACTION_OTHER_SELECT);
+        }
+
         AddGossipItemFor(player, GOSSIP_ICON_CHAT, "<< Back",
                          GOSSIP_SENDER_MAIN, GG_ACTION_BACK_MAIN);
         SendGossipMenuFor(player, NPC_TEXT_GEAR_GAMBLER, creature->GetGUID());

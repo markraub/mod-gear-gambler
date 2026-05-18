@@ -48,6 +48,8 @@ struct GGLootEntry
     uint8  quality;         // cached from item_template
     int32  allowableClass;  // cached from item_template (-1 = all)
     uint32 requiredLevel;   // cached from item_template
+    uint32 itemLevel;       // used for resource bracket mapping (trade goods have requiredLevel==0)
+    uint8  itemSubClass;    // used for armor-type filtering (cloth=1,leather=2,mail=3,plate=4)
 };
 
 class GearGamblerMgr
