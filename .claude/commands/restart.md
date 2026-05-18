@@ -15,7 +15,7 @@ ssh -i ~/.ssh/geargambler_dev -o StrictHostKeyChecking=no azerothcore@192.168.50
   tmux send-keys -t auth 'cd ~/azerothcore-wotlk/env/dist/bin && ./authserver' Enter &&
 
   echo '=== Starting world server in tmux ===' &&
-  tmux new-session -d -s world 2>/dev/null || tmux kill-session -t world && tmux new-session -d -s world &&
+  tmux new-session -d -s world 2>/dev/null; tmux kill-session -t world 2>/dev/null; tmux new-session -d -s world &&
   tmux send-keys -t world 'cd ~/azerothcore-wotlk/env/dist/bin && ./worldserver' Enter &&
 
   echo '=== Server restarted. Attach with: tmux attach -t world ===' &&
